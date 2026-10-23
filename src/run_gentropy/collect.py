@@ -128,3 +128,7 @@ def main() -> None:
     summary_statistics = load(parquet_paths)
     study_locus = clump(summary_statistics)
     study_locus.df.coalesce(1).write.parquet("study-locus")
+
+
+if __name__ == "__main__":
+    main()
