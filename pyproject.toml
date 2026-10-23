@@ -5,8 +5,6 @@ requires-python = "==3.12"
 dependencies = []
 
 [project.scripts]
-collect = "run_gentropy.collect:main"
-marker_names = "run_gentropy.marker_names:main"
 
 [build-system]
 requires = ["setuptools", "setuptools_scm", "wheel"]
