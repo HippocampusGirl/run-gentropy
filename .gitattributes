@@ -1,2 +1,4 @@
 * annex.backend=MD5E
 **/.git* annex.largefiles=nothing
+# SCM syntax highlighting & preventing 3-way merges
+pixi.lock merge=binary linguist-language=YAML linguist-generated=true -diff
