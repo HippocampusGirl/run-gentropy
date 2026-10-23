@@ -31,7 +31,7 @@ def load(parquet_paths: list[Path]) -> SummaryStatistics:
         .withColumn(
             "studyId", f.regexp_extract(f.input_file_name(), r"([^/]+)\.parquet$", 1)
         )
-        .join(variant_ids, on="marker_name")
+        .join(f.broadcast(variant_ids), on="marker_name")
         .select(
             "studyId",
             "chromosome",
