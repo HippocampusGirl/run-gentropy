@@ -6,7 +6,7 @@ from gentropy.common.session import Session
 session = Session()
 spark = session.spark
 
-marker_names_path = Path("marker_names")
+marker_names_path = Path("marker-names")
 
 
 def main() -> None:
