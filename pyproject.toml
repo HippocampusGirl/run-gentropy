@@ -1,0 +1,31 @@
+[project]
+name = "run-gentropy"
+dynamic = ["version"]
+requires-python = "==3.12"
+dependencies = []
+
+[project.scripts]
+
+[build-system]
+requires = ["setuptools", "setuptools_scm", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools_scm]
+version_scheme = "no-guess-dev"
+
+[tool.pixi.workspace]
+channels = ["conda-forge", "bioconda"]
+platforms = [{ platform = "linux-64" }]
+
+[tool.pixi.pypi-dependencies]
+run-gentropy = { path = ".", editable = true }
+gentropy = "==3.4.0"
+
+jupyterlab = "*"
+
+[tool.pixi.dependencies]
+python = "3.12.*"
+openjdk = "11.*"
