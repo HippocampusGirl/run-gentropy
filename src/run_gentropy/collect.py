@@ -53,7 +53,6 @@ def load(parquet_paths: list[Path]) -> SummaryStatistics:
         .withColumn(
             "studyId", f.regexp_extract(f.input_file_name(), r"([^/]+)\.parquet$", 1)
         )
-        .filter(f.col("p_value") <= 1e-5)
         .withColumn(
             "lifted_coordinates",
             f.explode(liftover.liftover_udf(chromosome, position)),
