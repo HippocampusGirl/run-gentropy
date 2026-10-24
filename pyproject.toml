@@ -22,10 +22,11 @@ platforms = [{ platform = "linux-64" }]
 
 [tool.pixi.pypi-dependencies]
 run-gentropy = { path = ".", editable = true }
-gentropy = "==3.4.0"
+gentropy = { path = "gentropy", editable = true }
 
 jupyterlab = "*"
 
 [tool.pixi.dependencies]
 python = "3.12.*"
 openjdk = "11.*"
+pandas-stubs = ">=3.0.5.260914,<4"
