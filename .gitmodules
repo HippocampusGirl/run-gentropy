@@ -1,0 +1,3 @@
+[submodule "gentropy"]
+	path = gentropy
+	url = git@github.com:HippocampusGirl/gentropy.git
