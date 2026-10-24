@@ -3,13 +3,15 @@ import logging
 from pathlib import Path
 
 import gentropy.common.stats
-import pyarrow.parquet as pq
+import pyarrow.parquet as pq  # type: ignore[import-untyped]
 import pyspark.sql.functions as f
 import pyspark.sql.types as t
 from gentropy.common.genomic_region import GenomicRegion, KnownGenomicRegions
 from gentropy.common.session import Session
+from gentropy.config import LocusBreakerClumpingConfig
 from gentropy.dataset.study_locus import StudyLocus
 from gentropy.dataset.summary_statistics import SummaryStatistics
+from pyspark.sql import DataFrame
 
 logger = logging.getLogger(__name__)
 
@@ -37,45 +39,70 @@ def genome_build(parquet_path: Path) -> str:
     return metadata.get(b"genome_build", b"GRCh37").decode()
 
 
-def load(parquet_paths: list[Path]) -> SummaryStatistics:
+def load(parquet_paths: list[Path]) -> DataFrame:
     genome_builds = spark.createDataFrame(
         [(path.stem, genome_build(path)) for path in parquet_paths],
         ["studyId", "genome_build"],
     )
-    is_alternate = f.upper(f.col("allele1")) == f.col("alternateAllele")
-    data_frame = (
+    return (
         spark.read.parquet(*(parquet_path.as_posix() for parquet_path in parquet_paths))
         # studyId is the file name without extension
         .withColumn(
             "studyId", f.regexp_extract(f.input_file_name(), r"([^/]+)\.parquet$", 1)
         )
         .join(f.broadcast(genome_builds), on="studyId")
-        .join(f.broadcast(variant_ids), on=["marker_name", "genome_build"])
-        .select(
-            "studyId",
-            "chromosome",
-            "position",
-            "variantId",
-            f.when(is_alternate, f.col("freq1"))
-            .otherwise(1 - f.col("freq1"))
-            .cast(t.FloatType())
-            .alias("effectAlleleFrequencyFromSource"),
-            f.when(is_alternate, f.col("effect"))
-            .otherwise(-f.col("effect"))
-            .alias("beta"),
-            f.col("std_err").alias("standardError"),
-            f.col("sample_count").cast(t.IntegerType()).alias("sampleSize"),
-            *gentropy.common.stats.split_pvalue_column(f.col("p_value")),
-        )
+    )
+
+
+def to_summary_statistics(data_frame: DataFrame) -> SummaryStatistics:
+    is_alternate = f.upper(f.col("allele1")) == f.col("alternateAllele")
+    data_frame = data_frame.select(
+        "studyId",
+        "chromosome",
+        "position",
+        "variantId",
+        f.when(is_alternate, f.col("freq1"))
+        .otherwise(1 - f.col("freq1"))
+        .cast(t.FloatType())
+        .alias("effectAlleleFrequencyFromSource"),
+        f.when(is_alternate, f.col("effect")).otherwise(-f.col("effect")).alias("beta"),
+        f.col("std_err").alias("standardError"),
+        f.col("sample_count").cast(t.IntegerType()).alias("sampleSize"),
+        *gentropy.common.stats.split_pvalue_column(f.col("p_value")),
     )
     return SummaryStatistics(_df=data_frame, _schema=SummaryStatistics.get_schema())
 
 
-def clump(summary_statistics: SummaryStatistics) -> StudyLocus:
-    study_locus = summary_statistics.locus_breaker_clumping().exclude_region(
-        GenomicRegion.from_known_genomic_region(KnownGenomicRegions.MHC)
+def clump(data_frame: DataFrame) -> StudyLocus:
+    significant = data_frame.filter(
+        f.col("p_value").cast(t.DoubleType())
+        <= LocusBreakerClumpingConfig.lbc_baseline_pvalue
     )
-    return study_locus.annotate_locus_statistics_boundaries(summary_statistics)
+    study_locus = (
+        to_summary_statistics(
+            variant_ids.join(f.broadcast(significant), on=["marker_name", "genome_build"])
+        )
+        .locus_breaker_clumping()
+        .exclude_region(
+            GenomicRegion.from_known_genomic_region(KnownGenomicRegions.MHC)
+        )
+        .persist()
+    )
+
+    loci = study_locus.df.select(
+        f.col("chromosome").alias("locusChromosome"), "locusStart", "locusEnd"
+    ).distinct()
+    locus_variants = variant_ids.join(
+        f.broadcast(loci),
+        on=(f.col("chromosome") == f.col("locusChromosome"))
+        & f.col("position").between(f.col("locusStart"), f.col("locusEnd")),
+        how="left_semi",
+    )
+    return study_locus.annotate_locus_statistics_boundaries(
+        to_summary_statistics(
+            data_frame.join(f.broadcast(locus_variants), on=["marker_name", "genome_build"])
+        )
+    )
 
 
 def main() -> None:
@@ -107,8 +134,7 @@ def main() -> None:
     ]
     logger.info(f"Found {len(parquet_paths)} parquet files")
 
-    summary_statistics = load(parquet_paths)
-    study_locus = clump(summary_statistics)
+    study_locus = clump(load(parquet_paths))
     study_locus.df.coalesce(1).write.mode("append").parquet("study-locus")
 
 
