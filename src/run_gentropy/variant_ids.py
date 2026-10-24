@@ -100,7 +100,7 @@ def main() -> None:
         )
     )
 
-    data_frame.repartition(1).write.parquet("variant-ids")
+    data_frame.repartition(1).write.mode("overwrite").parquet("variant-ids")
 
 
 if __name__ == "__main__":
