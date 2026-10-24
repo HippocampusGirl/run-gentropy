@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 
 import gentropy.common.stats
+import pyarrow.parquet as pq
 import pyspark.sql.functions as f
 import pyspark.sql.types as t
 from gentropy.common.genomic_region import GenomicRegion, KnownGenomicRegions
@@ -18,12 +19,29 @@ spark = session.spark
 variant_ids = (
     spark.read.parquet("variant-ids")
     .filter(f.col("variantId").isNotNull())
-    .select("marker_name", "chromosome", "position", "variantId", "alternateAllele")
+    .select(
+        "marker_name",
+        "genome_build",
+        "chromosome",
+        "position",
+        "variantId",
+        "alternateAllele",
+    )
     .cache()
 )
 
 
+def genome_build(parquet_path: Path) -> str:
+    # Files without the key are the meta-analyses, which use the GRCh37 legends
+    metadata = pq.read_metadata(parquet_path).metadata or {}
+    return metadata.get(b"genome_build", b"GRCh37").decode()
+
+
 def load(parquet_paths: list[Path]) -> SummaryStatistics:
+    genome_builds = spark.createDataFrame(
+        [(path.stem, genome_build(path)) for path in parquet_paths],
+        ["studyId", "genome_build"],
+    )
     is_alternate = f.upper(f.col("allele1")) == f.col("alternateAllele")
     data_frame = (
         spark.read.parquet(*(parquet_path.as_posix() for parquet_path in parquet_paths))
@@ -31,7 +49,8 @@ def load(parquet_paths: list[Path]) -> SummaryStatistics:
         .withColumn(
             "studyId", f.regexp_extract(f.input_file_name(), r"([^/]+)\.parquet$", 1)
         )
-        .join(f.broadcast(variant_ids), on="marker_name")
+        .join(f.broadcast(genome_builds), on="studyId")
+        .join(f.broadcast(variant_ids), on=["marker_name", "genome_build"])
         .select(
             "studyId",
             "chromosome",
@@ -39,6 +58,7 @@ def load(parquet_paths: list[Path]) -> SummaryStatistics:
             "variantId",
             f.when(is_alternate, f.col("freq1"))
             .otherwise(1 - f.col("freq1"))
+            .cast(t.FloatType())
             .alias("effectAlleleFrequencyFromSource"),
             f.when(is_alternate, f.col("effect"))
             .otherwise(-f.col("effect"))
