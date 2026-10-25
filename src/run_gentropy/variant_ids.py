@@ -30,17 +30,38 @@ def main() -> None:
     lifted_chromosome = f.col("lifted_coordinates").getItem(0)
     lifted_position = f.col("lifted_coordinates").getItem(1)
 
-    data_frame = (
-        # Output of marker_names.py
-        spark.read.parquet("marker-names")
+    # Output of marker_names.py
+    marker_names = spark.read.parquet("marker-names")
+
+    grch37 = (
+        marker_names.filter(f.col("genome_build") == "GRCh37")
         .withColumn(
             "lifted_coordinates",
             f.explode(liftover.liftover_udf(chromosome, position)),
         )
         .select(
             "marker_name",
-            f.regexp_replace(lifted_chromosome, "^chr", "").alias("chromosome"),
+            "genome_build",
+            lifted_chromosome.alias("chromosome"),
             lifted_position.cast(t.IntegerType()).alias("position"),
+        )
+    )
+
+    # Markers already in GRCh38 need no liftover
+    grch38 = marker_names.filter(f.col("genome_build") == "GRCh38").select(
+        "marker_name",
+        "genome_build",
+        chromosome.alias("chromosome"),
+        position.alias("position"),
+    )
+
+    data_frame = (
+        grch37.unionByName(grch38)
+        .select(
+            "marker_name",
+            "genome_build",
+            f.regexp_replace("chromosome", "^chr", "").alias("chromosome"),
+            "position",
             allele_hash(reference_allele, alternate_allele),
         )
         .join(
@@ -62,16 +83,24 @@ def main() -> None:
                 "variantId": f.coalesce(
                     f.col("variantId"),
                     f.concat_ws(
-                        "_", "chromosome", "position", reference_allele, alternate_allele
+                        "_",
+                        "chromosome",
+                        "position",
+                        reference_allele,
+                        alternate_allele,
                     ),
                 ),
-                "referenceAllele": f.coalesce(f.col("referenceAllele"), reference_allele),
-                "alternateAllele": f.coalesce(f.col("alternateAllele"), alternate_allele),
+                "referenceAllele": f.coalesce(
+                    f.col("referenceAllele"), reference_allele
+                ),
+                "alternateAllele": f.coalesce(
+                    f.col("alternateAllele"), alternate_allele
+                ),
             }
         )
     )
 
-    data_frame.repartition(1).write.parquet("variant-ids")
+    data_frame.repartition(1).write.mode("overwrite").parquet("variant-ids")
 
 
 if __name__ == "__main__":
