@@ -1,3 +1,7 @@
 [submodule "gentropy"]
 	path = gentropy
 	url = git@github.com:HippocampusGirl/gentropy.git
+[submodule "data/locus_to_gene_platform-2609"]
+	path = data/locus_to_gene_platform-2609
+	url = https://huggingface.co/opentargets/locus_to_gene_platform-2609
+	datalad-url = https://huggingface.co/opentargets/locus_to_gene_platform-2609
