@@ -1,16 +1,12 @@
 from pathlib import Path
 
-import pyspark.sql.functions as f
 from gentropy.common.session import Session
 from gentropy.config import _L2G_FEATURES_LIST
-from gentropy.dataset.l2g_feature_matrix import L2GFeatureMatrix
-from gentropy.dataset.l2g_prediction import L2GPrediction
-from gentropy.dataset.study_locus import StudyLocus
-from gentropy.l2g import LocusToGeneFeatureMatrixStep
+from gentropy.l2g import LocusToGeneFeatureMatrixStep, LocusToGeneStep
 
 session = Session(
     extended_spark_conf={"spark.driver.memory": "12g"},
-    # Configure l2g-feature-matrix output
+    # Configure the outputs of the gentropy steps
     write_mode="overwrite",
     output_partitions=1,
 )
@@ -36,25 +32,21 @@ def main() -> None:
         append_null_features=True,
     )
 
-    feature_matrix = L2GFeatureMatrix(
-        _df=session.spark.read.parquet(feature_matrix_path.as_posix())
+    LocusToGeneStep(
+        session,
+        run_mode="predict",
+        hyperparameters={},
+        download_from_hub=False,
+        train_on_full_dataset=False,
+        credible_set_path=combined_credible_sets_path.as_posix(),
+        feature_matrix_path=feature_matrix_path.as_posix(),
+        model_path="data/locus_to_gene_platform-2609",
+        # Only read from config.json when downloading from the hub. This is the
+        # same list in the same order
+        features_list=list(_L2G_FEATURES_LIST),
+        predictions_path=predictions_path.as_posix(),
+        l2g_threshold=0,
     )
-    credible_sets = StudyLocus.from_parquet(
-        session, combined_credible_sets_path.as_posix()
-    )
-    # LocusToGeneStep requires a Hugging Face token even for public models
-    predictions = (
-        L2GPrediction.from_credible_set(
-            session,
-            credible_sets,
-            feature_matrix,
-            model_path="opentargets/locus_to_gene_platform-2609",
-            download_from_hub=True,
-        )
-        .filter(f.col("score") >= 0.05)
-        .add_features(feature_matrix)
-    )
-    predictions.df.write.mode("overwrite").parquet(predictions_path.as_posix())
 
 
 if __name__ == "__main__":
