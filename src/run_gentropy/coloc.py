@@ -8,19 +8,42 @@ from gentropy.method.colocalisation.coloc_pip_ecaviar import ColocPIPECaviar
 session = Session(extended_spark_conf={"spark.driver.memory": "12g"})
 
 credible_sets_path = Path("credible-sets")
+combined_credible_sets_path = Path("combined-credible-sets")
 colocalisation_path = Path("colocalisation")
 
 
 def main() -> None:
-    credible_sets = StudyLocus.from_parquet(session, credible_sets_path.as_posix())
-    # find_overlaps drops credible sets without a study type, which the
-    # fine-mapper does not set
-    credible_sets = StudyLocus(
-        _df=credible_sets.df.withColumn("studyType", f.lit("gwas")),
-        _schema=StudyLocus.get_schema(),
+    gwas = StudyLocus.from_parquet(
+        session, credible_sets_path.as_posix()
+    ).df.withColumn("studyType", f.lit("gwas"))
+
+    variant_ids = gwas.select(
+        f.explode("locus.variantId").alias("variantId")
+    ).distinct()
+
+    opentargets = StudyLocus.from_parquet(session, "data/credible_set").df
+    # Locus2Gene doesn't use Opentargets GWAS
+    opentargets = opentargets.filter(f.col("studyType") != "gwas")
+    opentargets_variant_ids = opentargets.select(
+        "studyLocusId", f.explode("locus.variantId").alias("variantId")
     )
 
-    # One row per pair of credible sets that share a variant
+    overlap = (
+        opentargets_variant_ids.join(
+            f.broadcast(variant_ids), on="variantId", how="left_semi"
+        )
+        .select("studyLocusId")
+        .distinct()
+    )
+    opentargets = opentargets.join(overlap, on="studyLocusId", how="left_semi")
+
+    gwas.unionByName(opentargets).write.mode("overwrite").parquet(
+        combined_credible_sets_path.as_posix()
+    )
+    credible_sets = StudyLocus.from_parquet(
+        session, combined_credible_sets_path.as_posix()
+    )
+
     colocalisation = ColocPIPECaviar.colocalise(credible_sets.find_overlaps())
     colocalisation.df.write.mode("overwrite").parquet(colocalisation_path.as_posix())
 
