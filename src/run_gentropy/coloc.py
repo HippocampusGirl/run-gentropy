@@ -13,9 +13,12 @@ colocalisation_path = Path("colocalisation")
 
 
 def main() -> None:
-    gwas = StudyLocus.from_parquet(
-        session, credible_sets_path.as_posix()
-    ).df.withColumn("studyType", f.lit("gwas"))
+    gwas = (
+        StudyLocus.from_parquet(session, credible_sets_path.as_posix())
+        .df.withColumn("studyType", f.lit("gwas"))
+        # Fine-mapping jobs that were interrupted wrote some credible sets twice
+        .dropDuplicates(["studyLocusId"])
+    )
 
     variant_ids = gwas.select(
         f.explode("locus.variantId").alias("variantId")
