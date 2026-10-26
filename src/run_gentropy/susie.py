@@ -108,8 +108,11 @@ def start_worker() -> Session:
             extended_spark_conf={
                 "spark.driver.memory": "48g",
                 "spark.driver.maxResultSize": "0",
-                # Use one core, and start with a 1 GiB heap that grows as needed
-                "spark.driver.extraJavaOptions": "-XX:ActiveProcessorCount=1 -Xms1g",
+                # Use one core, start with a 1 GiB heap that grows as needed, and
+                # shrink it fully on the next full collection
+                "spark.driver.extraJavaOptions": (
+                    "-XX:ActiveProcessorCount=1 -Xms1g -XX:-ShrinkHeapInSteps"
+                ),
                 "spark.ui.enabled": "false",
                 "spark.ui.showConsoleProgress": "false",
                 "spark.sql.shuffle.partitions": "1",
@@ -132,6 +135,8 @@ def run(
     study_locus_id = row["studyLocusId"]
 
     try:
+        # Release memory
+        session.spark._jvm.System.gc()  # type: ignore[union-attr, operator]
         result = finemap(session, row)
     except Exception:  # noqa: BLE001
         return study_locus_id, None, traceback.format_exc()
