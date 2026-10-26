@@ -25,8 +25,6 @@ def main() -> None:
     ).distinct()
 
     opentargets = StudyLocus.from_parquet(session, "data/credible_set").df
-    # Locus2Gene doesn't use Opentargets GWAS
-    opentargets = opentargets.filter(f.col("studyType") != "gwas")
     opentargets_variant_ids = opentargets.select(
         "studyLocusId", f.explode("locus.variantId").alias("variantId")
     )
