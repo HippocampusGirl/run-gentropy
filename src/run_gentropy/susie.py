@@ -64,6 +64,8 @@ def finemap(session: Session, row: Row) -> tuple[list[str], pd.DataFrame]:
             # Where the Open Targets fine-mapping pipeline differs from the defaults
             sum_pips=0.95,
             ld_min_r2=0.8,
+            # Also fine-map large loci
+            ignore_qc=True,
             log_output=locus_log_path.as_posix(),
         )
 
